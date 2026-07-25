@@ -1,11 +1,9 @@
 # Hermes backup pulled by Synology
 
-> **Architecture status:** The accepted production target is the
-> [native Synology container deployment](docs/native-container-spec.md). This
-> repository still implements the legacy Compose-based NAS-pull deployment and
-> must be migrated before it meets that specification. The
-> [hostile-source architecture](docs/hostile-source-backup-spec.md) is retained
-> as a rejected alternative and security reference.
+> [!NOTE]
+> The deployed Compose workflow below is the current production baseline. The
+> [unified backup safety specification](docs/unified-backup-safety-spec.md)
+> defines its staged hardening and its role alongside PVE/PBS cold backups.
 
 This is a one-shot, hardened container. Synology Task Scheduler starts it; the
 container connects to the Ubuntu host with a forced-command SSH key, streams a
