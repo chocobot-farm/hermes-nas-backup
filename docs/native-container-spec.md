@@ -530,7 +530,6 @@ The playbook interface MUST define and validate at least:
 | `hermes_backup_account` | Existing account under which the forced command runs |
 | `hermes_backup_authorized_keys` | List of public keys and their permitted NAS source IP or CIDR |
 | `hermes_backup_hermes_bin` | Absolute path to the Hermes application executable |
-| `hermes_backup_mempalace_python` | Absolute path to the MemPalace virtual-environment interpreter |
 | `hermes_backup_runtime_parent` | Private temporary-export parent owned by the runtime account |
 | `hermes_backup_state` | `present` for installation or `absent` for managed removal |
 
@@ -542,8 +541,8 @@ confidential, but its authorization options are integrity-sensitive.
 
 The playbook MUST install or verify the ordinary operating-system packages used
 by the exporter, such as Bash and TAR, through the host package manager. It MUST
-NOT install, upgrade, or otherwise take ownership of Hermes or MemPalace; their
-application lifecycle remains separate from backup-protocol deployment.
+NOT install, upgrade, or otherwise take ownership of Hermes; its application
+lifecycle remains separate from backup-protocol deployment.
 
 #### 8.6.1 Installed source-side layout
 
@@ -552,7 +551,6 @@ The initial installed layout MUST be equivalent to:
 ```text
 /usr/local/libexec/hermes-backup/                 root:root 0755
 /usr/local/libexec/hermes-backup/export           root:root 0755
-/usr/local/libexec/hermes-backup/mempalace-copy   root:root 0755
 RUNTIME_ACCOUNT_HOME/.cache/hermes-backup/        runtime account 0700
 ```
 
@@ -564,8 +562,8 @@ managed files long enough for rollback.
 
 The forced command MUST:
 
-- use fixed absolute paths for the Hermes executable, MemPalace interpreter,
-  protocol helper, temporary parent, and operating-system tools;
+- use fixed absolute paths for the Hermes executable, any protocol helper, the
+  temporary parent, and operating-system tools;
 - not accept environment-variable overrides for executable or helper paths;
 - reject a nonempty `SSH_ORIGINAL_COMMAND`;
 - send diagnostics to stderr and reserve stdout for the TAR stream;
@@ -575,11 +573,11 @@ The forced command MUST:
 - return nonzero when any application export, consistency check, or TAR stream
   operation fails.
 
-The Hermes and MemPalace application executables may remain under their normal
-application update mechanism and are not elevated into trusted backup
-components. The root-owned wrapper fixes how they are invoked and prevents the
-runtime account from replacing the backup protocol. It does not make their data
-or output truthful; the NAS-side source bounds remain mandatory.
+The Hermes application executable may remain under its normal application update
+mechanism and is not elevated into a trusted backup component. The root-owned
+wrapper fixes how it is invoked and prevents the runtime account from replacing
+the backup protocol. It does not make its data or output truthful; the NAS-side
+source bounds remain mandatory.
 
 #### 8.6.2 Managed SSH authorization
 
@@ -601,7 +599,7 @@ The playbook MUST:
 - permit two distinct restricted keys temporarily during rotation; and
 - remove only its managed entries and root-owned exporter files when
   `hermes_backup_state=absent`, deleting the runtime parent only when it is empty
-  and never deleting Hermes or MemPalace application data.
+  and never deleting Hermes application data.
 
 The public-key restriction is the authorization boundary. The playbook MUST NOT
 grant this key shell, PTY, forwarding, agent forwarding, X11, user-RC, arbitrary
@@ -971,8 +969,7 @@ Container logs SHOULD have a bounded retention policy. Backup completion and
 failure logs SHOULD use UTC timestamps.
 
 The restore procedure MUST be tested periodically. A repository check alone is
-not a substitute for restoring and validating representative Hermes and
-MemPalace content.
+not a substitute for restoring and validating representative Hermes content.
 
 ## 15. Migration from the Compose deployment
 

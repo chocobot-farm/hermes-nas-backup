@@ -310,8 +310,7 @@ does weaken confidence that the forced command is the reviewed exporter.
 
 Prefer a root-owned exporter path such as `/usr/local/libexec/` or a dedicated
 account with tightly controlled ownership. The exporter can still run with the
-minimum privileges required to read and consistently snapshot Hermes and
-MemPalace data.
+minimum privileges required to read and consistently snapshot Hermes data.
 
 ### Medium: no passphrase on the SSH key is an explicit availability/security tradeoff
 

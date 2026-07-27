@@ -63,7 +63,7 @@ The implementation MUST:
 1. Keep all repository credentials and encryption keys outside Hermes.
 2. Prevent Hermes from initiating network connections to backup components.
 3. Schedule and initiate backups from a system outside Hermes and the NAS.
-4. Preserve the application-consistent Hermes and MemPalace export.
+4. Preserve the application-consistent Hermes export.
 5. Treat all source output as hostile, opaque, and potentially unbounded.
 6. Encrypt backup content before it reaches either storage provider.
 7. Give the normal backup path no ability to overwrite or delete existing
@@ -258,19 +258,20 @@ The stream MUST contain:
 ```text
 RESTORE.txt
 hermes/hermes.zip
-mempalace/
 ```
 
 The exporter MUST:
 
 1. use the supported Hermes backup interface;
-2. hold the MemPalace writer lock for the MemPalace snapshot;
-3. use SQLite's online backup API for `chroma.sqlite3`;
-4. verify the copied SQLite database with `PRAGMA integrity_check`;
-5. omit transient lock, WAL, and shared-memory files as currently documented;
-6. fail nonzero if required data is absent or inconsistent;
-7. clean its temporary data on normal exit and signals; and
-8. emit no secret value.
+2. omit transient lock, WAL, and shared-memory files as currently documented;
+3. describe in `RESTORE.txt` only the archives actually present;
+4. fail nonzero if required data is absent or inconsistent;
+5. clean its temporary data on normal exit and signals; and
+6. emit no secret value.
+
+Additional tool state MAY later be added under its own top-level directory in
+the stream. Any such addition MUST document how it is captured consistently and
+MUST NOT weaken the requirements above.
 
 No source-provided checksum, signature, status string, or manifest may be
 treated as proof that hostile source data is truthful.
@@ -620,7 +621,7 @@ Application restores MUST:
    extended attributes;
 8. inspect the TAR and embedded Hermes ZIP before invoking application import;
 9. run malware and policy scans appropriate to the environment;
-10. validate SQLite integrity and representative Hermes/MemPalace behavior; and
+10. validate representative Hermes behavior; and
 11. require explicit operator approval before any recovered data reaches
     production.
 
@@ -650,7 +651,7 @@ objectives are:
 | Off-site immutable window | At least 30 days |
 
 These are service objectives, not guarantees. The deployment owner MUST confirm
-that they are adequate for Hermes and MemPalace.
+that they are adequate for Hermes.
 
 ## 17. Credential rotation and incidents
 
@@ -758,7 +759,7 @@ The target architecture is accepted only when all applicable checks pass.
 - [ ] Exporter and helpers are root-owned and outside user-writable paths.
 - [ ] Exporter diagnostics never contaminate stdout.
 - [ ] Exporter or SSH failure creates no snapshot.
-- [ ] MemPalace backup uses its writer lock and verifies SQLite integrity.
+- [ ] The exported Hermes archive is nonempty and validates after restore.
 
 ### 19.3 Hostile-output handling
 

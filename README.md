@@ -7,7 +7,7 @@
 
 This is a one-shot, hardened container. Synology Task Scheduler starts it; the
 container connects to the Ubuntu host with a forced-command SSH key, streams a
-SQLite-consistent `hermes backup` archive directly into Restic, applies
+application-consistent `hermes backup` archive directly into Restic, applies
 retention, and exits.
 
 No NAS or Restic credentials are stored on the Hermes server. No plaintext
@@ -122,7 +122,7 @@ snapshot.
 Every run stores the stream as `hermes-and-tools-backup.tar`. The future-proof
 name allows the bundle to gain additional tool state without another path
 rename. Restic groups by host and tag, so older snapshots remain eligible as
-parents even when their paths contained timestamps or included MemPalace data.
+parents even when their paths contained timestamps or a different bundle layout.
 
 Restic stages multiple approximately 16 MiB pack files in `/tmp` before saving
 them to the repository. The container therefore provides a 128 MiB tmpfs by

@@ -11,7 +11,7 @@
 This specification defines one layered backup system for the Hermes VM. It combines:
 
 1. **Cold machine recovery:** Proxmox VE (PVE) stops the Hermes VM cleanly and sends an encrypted image backup to Proxmox Backup Server (PBS), whose datastore is hosted on the Synology NAS.
-2. **Live application recovery:** A one-shot client on Synology pulls the forced-command Hermes/MemPalace export over SSH and writes it to an encrypted Restic repository.
+2. **Live application recovery:** A one-shot client on Synology pulls the forced-command Hermes export over SSH and writes it to an encrypted Restic repository.
 3. **Failure-domain recovery:** Protected NAS snapshots and an off-site copy preserve recovery points if the NAS or its administrators are compromised or the site is lost.
 
 The two local backup paths are complementary. PBS is the authoritative whole-machine recovery path and is controlled outside the guest. Restic provides application-consistent, granular, and portable recovery without restoring an entire VM. Neither local path alone protects against loss of the NAS because both repositories reside there.
@@ -28,7 +28,7 @@ The migration starts from a working deployment, not a greenfield design.
 - PBS runs on Synology and uses a dedicated NAS-backed datastore.
 - Synology runs the `main` branch Compose deployment as a scheduled one-shot container.
 - The container pulls `server/hermes-backup-stream` over restricted SSH and sends the stream directly to Restic with `--stdin-from-command`.
-- The stream contains a Hermes ZIP plus a writer-locked, SQLite-verified MemPalace copy.
+- The stream contains restore instructions plus the supported Hermes ZIP export.
 - Restic content, the SSH private key, and the Restic password remain absent from the Hermes VM.
 - The container is non-root, read-only, capability-free, and uses tmpfs for transient files.
 - Daily retention, weekly pruning, and weekly repository checks are scheduled on Synology.
@@ -43,7 +43,7 @@ The unified design MUST:
 2. Keep PBS credentials, the PVE client encryption key, Restic credentials, and NAS credentials out of the Hermes guest.
 3. Keep backup scheduling outside the Hermes guest.
 4. Make the cold PVE/PBS backup the trustworthy recovery path when guest-provided application output is suspect.
-5. Preserve the existing application-consistent Hermes and MemPalace stream.
+5. Preserve the existing application-consistent Hermes stream.
 6. Remove mutable Git checkout and Compose files from scheduled root execution on Synology.
 7. Make source-side backup protocol files root-owned and non-writable by the Hermes runtime account.
 8. Pin the Synology backup image by immutable digest and retain its current runtime hardening.
@@ -119,10 +119,10 @@ flowchart LR
 | Recovery need | Primary path | Why |
 | --- | --- | --- |
 | Complete VM loss, broken OS, uncertain application state | PVE/PBS cold backup | Captured outside the guest and restores the complete machine |
-| Hermes or MemPalace data rollback | Restic application backup | Application-consistent and faster/granular to inspect or import |
+| Hermes data rollback | Restic application backup | Application-consistent and faster/granular to inspect or import |
 | NAS loss or site disaster | Off-site encrypted PBS copy | Independent storage failure domain; can restore the whole VM |
 | Suspected guest compromise | Pre-compromise PBS image, isolated first boot | Does not rely on current guest exporter behavior |
-| Portable data migration | Restic application bundle | Stable TAR containing supported Hermes export and MemPalace snapshot |
+| Portable data migration | Restic application bundle | Stable TAR containing the supported Hermes export |
 
 The application repository MAY also be copied off-site. This improves granular recovery but MUST NOT delay establishing an off-site whole-VM path.
 
@@ -191,11 +191,10 @@ The target deployment MUST replace the user-writable `/home/anton/.local/bin/her
 ```text
 /usr/local/libexec/hermes-backup/                 root:root 0755
 /usr/local/libexec/hermes-backup/export           root:root 0755
-/usr/local/libexec/hermes-backup/mempalace-copy   root:root 0755
 /home/anton/.cache/hermes-backup/                 anton     0700
 ```
 
-The wrapper and protocol helper MUST:
+The wrapper MUST:
 
 - use fixed absolute executable paths;
 - not trust environment overrides for executables or helpers;
@@ -215,19 +214,17 @@ On success the forced command MUST emit one uncompressed TAR containing:
 ```text
 RESTORE.txt
 hermes/hermes.zip
-mempalace/
 ```
 
 The exporter MUST:
 
 1. invoke the supported Hermes backup command;
 2. require a nonempty Hermes archive;
-3. hold the MemPalace writer lock while copying related state;
-4. copy Chroma SQLite using SQLite's online backup API;
-5. run `PRAGMA integrity_check` on the staged database;
-6. exclude lock, WAL, SHM, runtime, and reinstallable environment files;
-7. keep the lock across related MemPalace state capture; and
-8. remove temporary plaintext after success, failure, or handled termination.
+3. exclude lock, WAL, SHM, runtime, and reinstallable environment files;
+4. emit restore instructions describing only the archives actually present; and
+5. remove temporary plaintext after success, failure, or handled termination.
+
+Additional tool state MAY be added to the bundle later under its own top-level directory. Any such addition MUST document its own consistency method and MUST NOT weaken the guarantees above.
 
 The NAS MUST treat the stream as untrusted bytes during ingestion and MUST NOT extract it as part of the scheduled backup path.
 
@@ -374,8 +371,7 @@ Restic content originated in the guest and MUST be treated as untrusted. Restore
 - reject absolute paths and path traversal;
 - prevent device creation, setuid/setgid restoration, capabilities, and unsafe ownership;
 - handle symlinks without permitting writes outside the restore root;
-- inspect the TAR and embedded Hermes ZIP;
-- validate MemPalace SQLite integrity; and
+- inspect the TAR and embedded Hermes ZIP; and
 - keep networking disabled until inspection is complete.
 
 At least quarterly, perform a representative application restore. At least annually, perform off-site-only recovery using protected key copies. A monthly lightweight canary restore is recommended.
@@ -388,7 +384,7 @@ Migration MUST be incremental and reversible.
 
 1. Record current NAS paths, schedules, image ID, Restic repository, stable host/tag, and SSH fingerprints without recording secret values.
 2. Run the existing tests.
-3. Confirm a current Restic snapshot can be restored and its Hermes ZIP and MemPalace SQLite data validate.
+3. Confirm a current Restic snapshot can be restored and its Hermes ZIP validates.
 4. Confirm the latest cold PBS backup verifies and can be restored with networking disconnected.
 5. Back up the PVE AES key, Restic password, and Synology recovery material to two protected external locations.
 
@@ -397,7 +393,7 @@ Migration MUST be incremental and reversible.
 ### Phase 1 — Protect the source protocol
 
 1. Add the idempotent Hermes-host Ansible installer.
-2. Install root-owned exporter and MemPalace helper files under `/usr/local/libexec/hermes-backup/`.
+2. Install the root-owned exporter under `/usr/local/libexec/hermes-backup/`.
 3. Add a second restricted key entry if key rotation is required.
 4. Test a complete backup through the existing NAS client.
 5. Remove the legacy authorization that invokes the user-writable exporter.
@@ -505,11 +501,11 @@ Unless replaced by measured requirements:
 ### Live application recovery
 
 - [ ] Root-owned forced command rejects shell, PTY, forwarding, and arbitrary commands.
-- [ ] Hermes and MemPalace export validation succeeds.
+- [ ] Hermes export validation succeeds.
 - [ ] Exporter failure, timeout, undersize, and oversize create no Restic snapshot.
 - [ ] Scheduled containers are digest-pinned and do not execute the Git checkout.
 - [ ] Check and prune containers have no SSH private-key mount.
-- [ ] A representative Hermes/MemPalace restore succeeds in isolation.
+- [ ] A representative Hermes restore succeeds in isolation.
 
 ### Storage and operations
 
