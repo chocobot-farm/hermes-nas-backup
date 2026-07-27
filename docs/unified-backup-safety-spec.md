@@ -288,10 +288,35 @@ The backup mode MUST:
 5. reject oversized output without accepting a silently truncated stream;
 6. invoke Restic with `--stdin-from-command` so a nonzero SSH/exporter exit creates no snapshot;
 7. use stable `--host`, `--tag`, and `--stdin-filename` values;
-8. report the created snapshot identifier; and
-9. clean tmpfs material on all handled exits.
+8. compute the SHA-256 digest and byte length of the received stream as it passes to Restic;
+9. emit a run manifest describing what was received;
+10. report the created snapshot identifier; and
+11. clean tmpfs material on all handled exits.
 
 The live stream SHOULD continue directly into Restic rather than being written as a plaintext NAS archive. Initial minimum/maximum byte and duration limits MUST be replaced with measured values plus documented headroom.
+
+The digest and byte length MUST be computed on the NAS over the bytes actually received, never taken from a source-supplied value. Inserting the digest computation MUST NOT buffer the stream to a plaintext NAS file, suppress the exporter's exit status, or prevent Restic from cancelling the snapshot on producer failure.
+
+### 9.4.1 Run manifest
+
+Each backup attempt MUST produce one manifest record containing at least:
+
+- schema version;
+- UTC start and finish times;
+- source identifier and verified SSH host-key fingerprint;
+- exporter/SSH exit status;
+- received byte length;
+- SHA-256 digest of the received stream;
+- deployed image digest; and
+- the resulting Restic snapshot identifier, or the reason no snapshot was created.
+
+The manifest MUST be emitted for failed attempts as well as successful ones, because an attempt that produced no snapshot is precisely the event that leaves no other trace in the repository.
+
+The manifest MUST be retained outside the Restic repository, MUST be durable for at least the snapshot retention period, and MUST NOT contain secret values.
+
+The manifest MUST NOT be carried in Restic tags. Retention groups by host and tags, so a per-run tag value would place every snapshot in its own retention group and defeat the policy in section 9.5.
+
+A recorded digest is evidence about transfer, not about truthfulness. It proves which bytes the NAS received and stored, and allows a restored snapshot to be re-hashed and compared. It does not establish that a compromised Hermes produced honest data; that guarantee comes only from the cold PVE/PBS path in section 7.
 
 ### 9.5 Retention, checks, and pruning
 
@@ -343,6 +368,8 @@ Operators MUST be able to determine:
 - PVE client-encryption fingerprint, but not the key value;
 - deployed Restic image digest and container exit code;
 - latest Restic snapshot ID, host, tag, size, and duration;
+- the run manifest for any recent attempt, including attempts that created no snapshot;
+- the received byte length and stream digest trend across runs, so an abrupt change in export size or a repeated identical digest is visible;
 - last PBS verification, prune, and garbage-collection results;
 - last Restic check and prune results;
 - current NAS protected-snapshot horizon;
@@ -503,6 +530,8 @@ Unless replaced by measured requirements:
 - [ ] Root-owned forced command rejects shell, PTY, forwarding, and arbitrary commands.
 - [ ] Hermes export validation succeeds.
 - [ ] Exporter failure, timeout, undersize, and oversize create no Restic snapshot.
+- [ ] Every attempt, including a deliberately failed one, produces a retained run manifest.
+- [ ] A restored snapshot re-hashes to the digest its manifest recorded.
 - [ ] Scheduled containers are digest-pinned and do not execute the Git checkout.
 - [ ] Check and prune containers have no SSH private-key mount.
 - [ ] A representative Hermes restore succeeds in isolation.
@@ -524,13 +553,14 @@ Implementation of this specification is complete only when the repository contai
 1. An idempotent Hermes-host Ansible installer and removal procedure.
 2. A versioned exporter stream contract.
 3. Whole-run timeout and source byte-bound enforcement with failure tests.
-4. A protected GHCR image publishing workflow with test, scan, SBOM, provenance, and attestation stages.
-5. Native fixed-container creation templates for backup, check, prune, snapshots, and init.
-6. Synology encrypted-secret, ACL, UID/GID, scheduler, quota, and protected-snapshot instructions.
-7. PVE/PBS schedule, encryption-key recovery, verification, and isolated-restore instructions.
-8. Off-site PBS copy and off-site-only recovery instructions.
-9. Monitoring and alert verification instructions.
-10. Upgrade, rollback, credential rotation, incident response, and migration runbooks.
+4. Inline stream digest/length accounting and a versioned run-manifest record, with tests covering a failed attempt.
+5. A protected GHCR image publishing workflow with test, scan, SBOM, provenance, and attestation stages.
+6. Native fixed-container creation templates for backup, check, prune, snapshots, and init.
+7. Synology encrypted-secret, ACL, UID/GID, scheduler, quota, and protected-snapshot instructions.
+8. PVE/PBS schedule, encryption-key recovery, verification, and isolated-restore instructions.
+9. Off-site PBS copy and off-site-only recovery instructions.
+10. Monitoring and alert verification instructions.
+11. Upgrade, rollback, credential rotation, incident response, and migration runbooks.
 
 ## 19. Primary references
 
