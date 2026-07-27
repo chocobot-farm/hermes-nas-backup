@@ -103,7 +103,7 @@ ssh_args=(
 
 # Snapshot timestamps already identify each run. Keep the path stable so Restic
 # can select parents and apply retention across all backup runs.
-archive_name="hermes-and-mempalace.tar"
+archive_name="hermes.tar"
 log "Starting streamed Hermes backup from $HERMES_SSH_TARGET"
 
 # --stdin-from-command is deliberate: unlike a shell pipe, Restic observes the
@@ -113,6 +113,7 @@ restic backup \
   --stdin-filename "$archive_name" \
   --host "$RESTIC_HOST" \
   --tag "$RESTIC_TAG" \
+  --group-by host,tags \
   -- ssh "${ssh_args[@]}"
 
 log "Backup snapshot completed"
