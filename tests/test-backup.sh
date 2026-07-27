@@ -57,7 +57,7 @@ export FORGET_AFTER_BACKUP=true
 
 "$project_dir/backup.sh"
 grep -q '^backup .*--stdin-from-command .*--group-by host,tags' "$MOCK_RESTIC_LOG"
-grep -q -- '--stdin-filename hermes.tar' "$MOCK_RESTIC_LOG"
+grep -q -- '--stdin-filename hermes-and-tools-backup.tar' "$MOCK_RESTIC_LOG"
 grep -q '^forget .*--group-by host,tags .*--keep-daily 7 .*--keep-weekly 5 .*--keep-monthly 12' "$MOCK_RESTIC_LOG"
 
 : > "$MOCK_RESTIC_LOG"
