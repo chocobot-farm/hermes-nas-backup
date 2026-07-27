@@ -26,12 +26,31 @@ read-only bind mounts and are not included in the image.
 
 ## 1. Ubuntu/Hermes server
 
-The included exporter must be installed as:
+The exporter should be exposed through a symlink from a dedicated clean checkout
+that tracks `main`. Keep development branches in a separate checkout:
 
 ```bash
-install -m 0755 server/hermes-backup-stream \
+git clone https://github.com/chocobot-farm/hermes-nas-backup.git \
+  /home/anton/work/hermes-nas-backup-live
+git -C /home/anton/work/hermes-nas-backup-live switch main
+test -z "$(git -C /home/anton/work/hermes-nas-backup-live status --porcelain)"
+ln -sfn \
+  /home/anton/work/hermes-nas-backup-live/server/hermes-backup-stream \
   /home/anton/.local/bin/hermes-backup-stream
 ```
+
+Update the deployed exporter after merging a tested change:
+
+```bash
+test "$(git -C /home/anton/work/hermes-nas-backup-live branch --show-current)" = main
+test -z "$(git -C /home/anton/work/hermes-nas-backup-live status --porcelain)"
+git -C /home/anton/work/hermes-nas-backup-live pull --ff-only origin main
+test -z "$(git -C /home/anton/work/hermes-nas-backup-live status --porcelain)"
+```
+
+The checkout and symlink must be owned by the Hermes account, and the exporter
+must remain executable. The checkout, exporter, symlink, and their parent
+directories must not be group- or world-writable.
 
 Generate the SSH key **on the NAS**, then add its public key to
 `/home/anton/.ssh/authorized_keys` on Ubuntu. Prefer restricting it to the NAS
@@ -102,17 +121,10 @@ Restic's `--stdin-from-command` mode checks the SSH command's exit status. If
 SSH or the Ubuntu exporter fails, Restic cancels the backup and creates no
 snapshot.
 
-The source stream is also bounded without writing a plaintext spool. Defaults
-require at least 10 KiB, allow at most 100 GiB, and terminate backup snapshot
-creation after four hours. Configure `MIN_EXPORT_BYTES`, `MAX_EXPORT_BYTES`, and
-`MAX_BACKUP_SECONDS` from measured successful runs with suitable headroom. SSH
-server-alive probes detect sessions that remain connected but stop responding.
-The Restic shared folder should also have a DSM quota and a capacity alert; the
-quota contains cumulative consumption that a per-run limit cannot.
-
-Every run stores the combined stream as `hermes-and-mempalace.tar`. The stable
-path lets Restic reuse the correct parent snapshot. Retention groups by host and
-tag, so it also covers older snapshots whose paths contained timestamps.
+Every run stores the stream as `hermes-and-tools-backup.tar`. The future-proof
+name allows the bundle to gain additional tool state without another path
+rename. Restic groups by host and tag, so older snapshots remain eligible as
+parents even when their paths contained timestamps or included MemPalace data.
 
 Restic stages multiple approximately 16 MiB pack files in `/tmp` before saving
 them to the repository. The container therefore provides a 128 MiB tmpfs by

@@ -56,8 +56,8 @@ export HERMES_SSH_TARGET="anton@host"
 export FORGET_AFTER_BACKUP=true
 
 "$project_dir/backup.sh"
-grep -q '^backup .*--stdin-from-command' "$MOCK_RESTIC_LOG"
-grep -q -- '--stdin-filename hermes-and-mempalace.tar' "$MOCK_RESTIC_LOG"
+grep -q '^backup .*--stdin-from-command .*--group-by host,tags' "$MOCK_RESTIC_LOG"
+grep -q -- '--stdin-filename hermes-and-tools-backup.tar' "$MOCK_RESTIC_LOG"
 grep -q '^forget .*--group-by host,tags .*--keep-daily 7 .*--keep-weekly 5 .*--keep-monthly 12' "$MOCK_RESTIC_LOG"
 
 : > "$MOCK_RESTIC_LOG"
@@ -71,5 +71,48 @@ if grep -q '^forget ' "$MOCK_RESTIC_LOG"; then
   printf 'retention ran after a failed backup\n' >&2
   exit 1
 fi
+
+cat > "$tmp/bin/hermes" <<'MOCK_HERMES'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+[[ "$1" == "backup" && "$2" == "--output" ]]
+if [[ "${MOCK_HERMES_FAIL:-false}" == "true" ]]; then
+  exit 43
+fi
+printf 'fake Hermes ZIP' > "$3"
+MOCK_HERMES
+chmod 755 "$tmp/bin/hermes"
+
+exported_bundle="$tmp/hermes.tar"
+exporter_stderr="$tmp/exporter.stderr"
+cache_before="$(compgen -G '/home/anton/.cache/hermes-backup.*' | sort || true)"
+HERMES_BIN="$tmp/bin/hermes" \
+  "$project_dir/server/hermes-backup-stream" > "$exported_bundle" 2> "$exporter_stderr"
+cache_after_success="$(compgen -G '/home/anton/.cache/hermes-backup.*' | sort || true)"
+[[ "$cache_after_success" == "$cache_before" ]]
+
+mapfile -t bundle_members < <(tar -tf "$exported_bundle")
+expected_members=$'RESTORE.txt\nhermes/\nhermes/hermes.zip'
+actual_members="$(printf '%s\n' "${bundle_members[@]}")"
+if [[ "$actual_members" != "$expected_members" ]]; then
+  printf 'unexpected Hermes-only TAR members:\n%s\n' "$actual_members" >&2
+  exit 1
+fi
+
+restore_text="$(tar -xOf "$exported_bundle" RESTORE.txt)"
+grep -q 'hermes import hermes/hermes.zip' <<< "$restore_text"
+if grep -qi 'mempalace' <<< "$restore_text"; then
+  printf 'Hermes-only restore instructions mention MemPalace\n' >&2
+  exit 1
+fi
+
+export MOCK_HERMES_FAIL=true
+if HERMES_BIN="$tmp/bin/hermes" \
+  "$project_dir/server/hermes-backup-stream" > /dev/null 2> "$exporter_stderr"; then
+  printf 'expected failed Hermes export to fail\n' >&2
+  exit 1
+fi
+cache_after_failure="$(compgen -G '/home/anton/.cache/hermes-backup.*' | sort || true)"
+[[ "$cache_after_failure" == "$cache_before" ]]
 
 printf 'backup entrypoint tests: OK\n'
