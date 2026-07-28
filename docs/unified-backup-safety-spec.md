@@ -6,6 +6,8 @@
 
 **Migration baseline:** The implementation on `main` is deployed and remains in service during migration
 
+**Deployment of record:** [Securely Deploying Hermes Agent in a Proxmox Homelab](https://github.com/chocobot-farm/plume-pilot/blob/main/docs/deployment/0001-hermes-homelab-pve-pbs-synology.md), the authoritative description of the PVE/PBS/Synology layer
+
 ## 1. Purpose
 
 This specification defines one layered backup system for the Hermes VM. It combines:
@@ -34,6 +36,16 @@ The migration starts from a working deployment, not a greenfield design.
 - Daily retention, weekly pruning, and weekly repository checks are scheduled on Synology.
 
 These controls MUST remain operational until their replacements have completed backup and restore acceptance tests. Migration MUST NOT create a window with no verified recovery path.
+
+The baseline is equally defined by what it does not have. None of the following exist today, and each is a requirement of this specification rather than a description of the running system:
+
+- any monitoring outside PVE, PBS, and the NAS that answers when each path last succeeded;
+- any copy of either repository outside the Synology NAS;
+- protected or immutable snapshots on either the PBS datastore or the Restic repository;
+- network separation between the Hermes guest and the PVE, PBS, DSM, and NFS endpoints, which today share one flat LAN; or
+- bounds on the size or duration of the live application export.
+
+Both backup paths are designed to fail closed and both fail quietly. Until the first item above is addressed, the system's compliance with every recovery-point objective in section 16 is unobserved rather than demonstrated.
 
 ## 3. Goals
 
@@ -133,12 +145,16 @@ The application repository MAY also be copied off-site. This improves granular r
 - PVE MUST schedule the Hermes VM backup outside the guest.
 - The production backup mode MUST perform an orderly stop before capture. PVE MAY resume the VM after the stopped state has been established and the background backup process starts.
 - The Hermes guest MUST NOT hold the PBS API token or PVE client encryption key.
-- The guest network MUST NOT reach PVE, PBS, or NAS management interfaces.
+- The guest network MUST NOT reach PVE, PBS, or NAS management interfaces. This is not satisfied today; see section 13, phase 5.
 - Guest-agent quiescing MAY improve behavior but MUST NOT be treated as a security boundary.
+- The guest MUST be verified to return and reconnect its messaging gateway after a backup-induced stop, because the production mode takes the guest offline daily.
+
+An orderly stop invalidates the hypervisor's dirty bitmap, so each run may reread and checksum the whole virtual disk even though only changed chunks are uploaded. Backup-window sizing and the maintenance separation in section 7.4 MUST be based on that full-read cost, not on the uploaded delta. Moving to a guest-agent snapshot mode to recover incremental read speed MUST be recorded as a deliberate decision to accept guest-influenced consistency.
 
 ### 7.2 PBS access and encryption
 
 - PVE MUST use client-side encryption for the PBS storage entry.
+- PVE MUST pin the PBS TLS certificate fingerprint, obtained through a trusted administrative session, so the storage endpoint is authenticated rather than merely reachable. A fingerprint change MUST be treated as an incident until explained by a known certificate replacement.
 - The exact existing AES JSON key MUST have two protected recovery copies outside PVE, PBS, and the NAS, such as a password manager and encrypted offline media.
 - Disaster recovery MUST upload the existing key. It MUST NOT generate a replacement key when restoring old encrypted backups.
 - The PBS API token used by PVE MUST have only the permissions required to create and restore its owned backup groups. Retention and datastore administration SHOULD remain server-side.
@@ -147,11 +163,13 @@ The application repository MAY also be copied off-site. This improves granular r
 ### 7.3 NAS-backed PBS datastore
 
 - The datastore MUST remain on a dedicated Synology Btrfs shared folder exported only to the PBS VM.
+- The NFS export MUST be restricted to the PBS VM's single reserved address, which MUST NOT be allowed to change. Because `AUTH_SYS` trusts client-supplied numeric identities, that address restriction and the network boundary are the export's only effective authorization; widening it to the LAN would grant write and delete access to the image datastore.
 - NFS MUST use a hard mount, synchronous-safe behavior, stable numeric ownership, and a mount arrangement that cannot silently write into an empty local mount point when NFS is absent.
-- The PBS `backup` identity MUST be tested for create, write, rename, sync, and delete on the mounted datastore.
+- The PBS `backup` identity MUST be tested for create, write, rename, sync, and delete on the mounted datastore. Ownership and mapping problems MUST be corrected at the export rather than worked around with permissive modes.
 - Shared-folder compression and Recycle Bin SHOULD remain disabled because PBS already compresses data and garbage collection must reclaim chunks.
 - Capacity MUST be monitored using Synology shared-folder usage, not only PBS-reported filesystem capacity.
-- The PBS VM backup MUST exclude the datastore itself; PBS configuration is reconstructable and the datastore is reattachable.
+- The PVE backup job MUST NOT include the PBS VM. PBS runs on the NAS, outside the protected host, and its recovery path is rebuild-and-reattach rather than image restore: PBS configuration is reconstructable and the datastore is an ordinary exported directory. Reattaching MUST NOT initialize or erase the existing datastore.
+- The datastore MUST NOT be captured by any ordinary file-level backup job that copies chunks as individual files.
 
 ### 7.4 PBS maintenance
 
@@ -355,6 +373,8 @@ Operators MUST be alerted for:
 - nonzero exporter, SSH, Restic, PVE, PBS, verification, prune, GC, or sync jobs;
 - changed SSH or PBS fingerprints;
 - live-export size or duration outside established bounds;
+- loss of the NFS mount inside the PBS VM, or a datastore path resolving to a local directory rather than the mounted export;
+- an unexpected change in the owner of a PBS backup group;
 - overlapping tasks;
 - Synology shared-folder quota pressure;
 - absent or expired protected snapshots;
@@ -417,7 +437,20 @@ Migration MUST be incremental and reversible.
 
 **Gate:** both current recovery paths have successful restore evidence.
 
-### Phase 1 — Protect the source protocol
+### Phase 1 — Make both paths observable
+
+This phase comes first because it is the cheapest, is independent of every other phase, and because no later gate can be trusted while failures are invisible. It changes no backup path.
+
+1. Stand up a monitoring destination outside Hermes, PVE, PBS, and the NAS, with a named on-call owner.
+2. Report PVE backup, PBS verification, prune, and garbage-collection outcomes to it.
+3. Report Synology task outcomes and the Restic client's exit status to it.
+4. Alert on a missed schedule on either path, not only on a reported failure, so a job that never ran is as visible as one that failed.
+5. Alert on Synology shared-folder usage crossing its threshold, using DSM accounting rather than PBS-reported free space.
+6. Deliberately fail one job on each path and confirm the alert arrives.
+
+**Gate:** an operator can state when each path last succeeded without logging into PVE, PBS, or the NAS, and a suppressed schedule raises an alert within the section 16 detection objective.
+
+### Phase 2 — Protect the source protocol
 
 1. Add the idempotent Hermes-host Ansible installer.
 2. Install the root-owned exporter under `/usr/local/libexec/hermes-backup/`.
@@ -427,7 +460,7 @@ Migration MUST be incremental and reversible.
 
 **Gate:** arbitrary commands are rejected, the exporter path is not runtime-user-writable, and a producer failure creates no Restic snapshot.
 
-### Phase 2 — Replace mutable NAS execution
+### Phase 3 — Replace mutable NAS execution
 
 1. Add the protected GHCR release workflow and publish the first attested image.
 2. Create encrypted secret/config locations outside the Git checkout.
@@ -439,7 +472,7 @@ Migration MUST be incremental and reversible.
 
 **Gate:** no scheduled root task evaluates the Git checkout, Compose file, build context, or user-writable script.
 
-### Phase 3 — Protect local history
+### Phase 4 — Protect local history
 
 1. Enable and verify protected Btrfs snapshots for PBS and Restic shared folders.
 2. Set quotas and alerts with sufficient backup, maintenance, and snapshot-growth headroom.
@@ -447,7 +480,19 @@ Migration MUST be incremental and reversible.
 
 **Gate:** a tested protected snapshot survives an attempted ordinary repository deletion and remains restorable.
 
-### Phase 4 — Establish independent recovery
+### Phase 5 — Separate the guest from the backup network
+
+This phase implements the isolation required by section 7.1. It is placed after the container migration because it changes reachability for the running backup path and is easier to validate once that path is stable.
+
+1. Move the Hermes guest to its own VLAN or bridge with outbound Internet access and no route to the PVE management, PBS, DSM, or NFS endpoints.
+2. Preserve the one direction the application path needs: the Synology client MUST still reach the guest's SSH port. The guest MUST NOT gain a return path to the NAS.
+3. Confirm the guest cannot reach the PVE management interface, the PBS interface, DSM, the NFS export, or the Restic repository endpoint.
+4. Confirm from the guest that Hermes retains the Internet access its own operation requires.
+5. Run one complete cycle on each backup path and one restore drill after the change.
+
+**Gate:** the guest's inability to reach backup infrastructure is enforced by routing as well as by credentials, and both paths still complete.
+
+### Phase 6 — Establish independent recovery
 
 1. Configure an encrypted off-site PBS copy in a different administrative and physical failure domain.
 2. Test a copy, verify it remotely, and perform an off-site-only isolated restore.
@@ -455,7 +500,7 @@ Migration MUST be incremental and reversible.
 
 **Gate:** complete Hermes VM recovery succeeds without the production Synology NAS.
 
-### Phase 5 — Retire the Compose deployment
+### Phase 7 — Retire the Compose deployment
 
 Only after the rollback window and all earlier gates pass:
 
@@ -520,7 +565,11 @@ Unless replaced by measured requirements:
 - [ ] PVE cold backup completes with `TASK OK`.
 - [ ] PBS stores client-side encrypted data and does not possess the PVE AES key.
 - [ ] PVE backup token has no datastore administration authority.
+- [ ] PVE pins the PBS TLS fingerprint and the storage entry reports active.
 - [ ] PBS verification reports zero errors.
+- [ ] The PBS datastore path is the mounted NFS export, not an empty local mount-point directory.
+- [ ] The NFS export is restricted to the PBS VM's single reserved address.
+- [ ] The PVE backup job does not include the PBS VM.
 - [ ] Restore to a new VMID boots with networking disconnected.
 - [ ] Production and restored clones are never online concurrently.
 - [ ] The exact preserved PVE AES key has been tested in an isolated recovery procedure.
@@ -544,6 +593,11 @@ Unless replaced by measured requirements:
 - [ ] Off-site-only restore succeeds.
 - [ ] Two protected external copies exist for every required decryption/recovery key.
 - [ ] Monitoring detects missed schedules and deliberate task failures.
+- [ ] An operator can state when each path last succeeded without logging into PVE, PBS, or the NAS.
+- [ ] The Hermes guest cannot route to PVE management, PBS, DSM, the NFS export, or the Restic repository endpoint.
+- [ ] Both backup paths and one restore drill still succeed after guest network separation.
+- [ ] The guest returns and reconnects its messaging gateway after a backup-induced stop.
+- [ ] A secret-free recovery card exists and has been used to complete a drill.
 - [ ] Upgrade, rollback, rotation, and incident procedures have named owners.
 
 ## 18. Required implementation deliverables
@@ -560,11 +614,16 @@ Implementation of this specification is complete only when the repository contai
 8. PVE/PBS schedule, encryption-key recovery, verification, and isolated-restore instructions.
 9. Off-site PBS copy and off-site-only recovery instructions.
 10. Monitoring and alert verification instructions.
-11. Upgrade, rollback, credential rotation, incident response, and migration runbooks.
+11. Guest network separation instructions, including the reachability tests that prove isolation without breaking the Synology pull.
+12. A secret-free recovery card template covering component addresses, the datastore name, the NFS export and mount path, where the PBS TLS fingerprint and PBS token identity are recorded, where each recovery key copy is held, and the restore isolation procedure.
+13. Upgrade, rollback, credential rotation, incident response, and migration runbooks.
 
 ## 19. Primary references
 
+- [Securely Deploying Hermes Agent in a Proxmox Homelab](https://github.com/chocobot-farm/plume-pilot/blob/main/docs/deployment/0001-hermes-homelab-pve-pbs-synology.md), the deployment of record
+- [Proxmox VE backup and restore](https://pve.proxmox.com/pve-docs/chapter-vzdump.html)
 - [Proxmox Backup Server documentation](https://pbs.proxmox.com/docs/)
+- [Proxmox Backup storage and maintenance](https://pbs.proxmox.com/docs/storage.html)
 - [Proxmox Backup client-side encryption](https://pbs.proxmox.com/docs/backup-client.html#encryption)
 - [Proxmox Backup permissions](https://pbs.proxmox.com/docs/user-management.html)
 - [Restic command-aware stdin](https://restic.readthedocs.io/en/stable/040_backup.html#reading-data-from-stdin)
