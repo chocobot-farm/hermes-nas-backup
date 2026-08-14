@@ -199,3 +199,41 @@ Deployment parameters to confirm from the target systems before implementation i
 - Confirmation that deployed image retention meets the required detection window, and acceptable maintenance, migration, and rollback windows.
 
 These choices may strengthen the design but must not change the prohibition on placing repository credentials, deletion authority, or backup control on Hermes, nor the prohibition on passing secret values through container environment variables.
+
+## References
+
+Deployment of record — [Securely Deploying Hermes Agent in a Proxmox Homelab](https://github.com/chocobot-farm/plume-pilot/blob/main/docs/deployment/0001-hermes-homelab-pve-pbs-synology.md), the authoritative description of the PVE/PBS/Synology layer.
+
+Proxmox:
+
+- [Proxmox VE backup and restore](https://pve.proxmox.com/pve-docs/chapter-vzdump.html)
+- [Proxmox Backup Server documentation](https://pbs.proxmox.com/docs/) and [features](https://www.proxmox.com/en/products/proxmox-backup-server/features)
+- [PBS storage and maintenance](https://pbs.proxmox.com/docs/storage.html)
+- [PBS client-side encryption](https://pbs.proxmox.com/docs/backup-client.html#encryption)
+- [PBS user management and API tokens](https://pbs.proxmox.com/docs/user-management.html)
+
+Restic and alternatives:
+
+- [Restic: preparing a new repository and supplying passwords](https://restic.readthedocs.io/en/stable/030_preparing_a_new_repo.html)
+- [Restic: command-aware stdin](https://restic.readthedocs.io/en/stable/040_backup.html#reading-data-from-stdin)
+- [Restic: append-only repositories and maintenance separation](https://restic.readthedocs.io/en/stable/060_forget.html) and [security considerations in append-only mode](https://restic.readthedocs.io/en/stable/060_forget.html#security-considerations-in-append-only-mode)
+- [Restic: scripting environment and password commands](https://restic.readthedocs.io/en/stable/075_scripting.html)
+- [Restic REST server](https://github.com/restic/rest-server)
+- [Borg append-only mode](https://borgbackup.readthedocs.io/en/stable/usage/notes.html#append-only-mode-forbid-compaction), [BorgBase documentation](https://docs.borgbase.com/), [rsync.net immutable snapshots](https://www.rsync.net/products/ransomware.html)
+
+Synology:
+
+- [DSM NFS permissions](https://kb.synology.com/en-global/DSM/help/DSM/AdminCenter/file_share_privilege_nfs?version=7)
+- [Manage encrypted shared folders](https://kb.synology.com/en-au/DSM/help/DSM/AdminCenter/file_share_key_manager)
+- [Create and manage an encrypted volume](https://kb.synology.com/en-global/DSM/help/DSM/StorageManager/volume_create_volume) and the [Volume Encryption white paper](https://kb.synology.com/en-eu/WP/Synology_Volume_Encryption_White_Paper/3)
+- [Set up a remote KMIP key server](https://kb.synology.com/en-us/DSM/tutorial/How_do_I_set_up_KMIP_server)
+- [Assign shared folder permissions](https://kb.synology.com/en-global/DSM/help/DSM/AdminCenter/file_share_privilege?version=6) and [advanced shared folder permissions](https://kb.synology.com/en-global/DSM/help/DSM/AdminCenter/file_share_privilege_asp?version=7)
+- [Snapshot Replication and immutable snapshots](https://kb.synology.com/en-us/DSM/help/SnapshotReplication/snapshots?version=7)
+- [NAS security guidance](https://kb.synology.com/en-us/DSM/tutorial/How_to_add_extra_security_to_your_Synology_NAS)
+
+Containers, supply chain, and SSH:
+
+- [Docker container security options](https://docs.docker.com/engine/containers/run/)
+- [Docker: manage secrets securely in Compose](https://docs.docker.com/compose/how-tos/use-secrets/), [Compose trust model](https://docs.docker.com/compose/trust-model/), [Swarm secrets](https://docs.docker.com/engine/swarm/secrets/)
+- [GitHub artifact attestations](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations)
+- [OpenSSH `authorized_keys` restrictions](https://man.openbsd.org/sshd.8)
