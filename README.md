@@ -1,9 +1,11 @@
 # Hermes backup pulled by Synology
 
 > [!NOTE]
-> The deployed Compose workflow below is the current production baseline. The
-> [unified backup safety specification](docs/unified-backup-safety-spec.md)
-> defines its staged hardening and its role alongside PVE/PBS cold backups.
+> The deployed Compose workflow below is the current production baseline. Its
+> staged hardening, its role alongside PVE/PBS cold backups, and the security
+> review behind both are specified in the
+> [`harden-hermes-backup-system`](openspec/changes/harden-hermes-backup-system/)
+> OpenSpec change.
 
 This is a one-shot, hardened container. Synology Task Scheduler starts it; the
 container connects to the Ubuntu host with a forced-command SSH key, streams a
